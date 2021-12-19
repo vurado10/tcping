@@ -1,0 +1,11 @@
+/.idea/*
+*/.idea/*
+/Include/*
+/Lib/*
+/Scripts/*
+/pyvenv.cfg
+*.json
+**/__pycache__
+.coverage
+*.db
+*.html
