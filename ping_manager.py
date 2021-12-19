@@ -2,19 +2,27 @@ import random
 import socket
 import time
 from threading import Thread
-from typing import Optional
+from typing import Optional, Callable
 from scapy.layers.inet import IP, TCP
 
 
 class PingManager:
-    def __init__(self, ip: str, port: int):
+    def __init__(self,
+                 ip: str,
+                 port: int,
+                 on_stop: Callable[[], None] = None):
         self.__ip: str = ip
         self.__port: int = port
         self.__sending_thread: Optional[Thread] = None
         self.__receiving_thread: Optional[Thread] = None
         self.__sending_time_by_seq: dict[int, float] = {}
-        self.__answer_time_by_seq: dict[int, float] = {}
+        self.__answer_sec_by_seq: dict[int, float] = {}
         self.__is_stoped = True
+        self.__on_stop = on_stop
+
+    @property
+    def is_stoped(self) -> bool:
+        return self.__is_stoped
 
     def start(self,
               interval: float,
@@ -23,7 +31,7 @@ class PingManager:
             raise RuntimeError("Manager is running")
 
         self.__sending_time_by_seq = {}
-        self.__answer_time_by_seq = {}
+        self.__answer_sec_by_seq = {}
 
         self.__sending_thread = Thread(
             target=self.__start_sending_syn_pkgs,
@@ -34,7 +42,7 @@ class PingManager:
         )
 
         self.__receiving_thread = Thread(
-            target=self.__start_receiving_ack_pkgs())
+            target=self.__start_receiving_ack_pkgs)
 
 
         self.__is_stoped = False
@@ -42,12 +50,19 @@ class PingManager:
         self.__receiving_thread.start()
 
     def stop(self):
-        self.__is_stoped = True
-        self.__sending_thread.join()
-        self.__receiving_thread.join()
+        if self.__is_stoped:
+            raise RuntimeError("Manager is already stopped")
 
-    def get_answers_time(self) -> list[float]:
-        return list(self.__answer_time_by_seq.values())
+        self.__is_stoped = True
+
+        if self.__on_stop is not None:
+            self.__on_stop()
+
+    def get_sent_packages_count(self) -> int:
+        return len(self.__sending_time_by_seq.keys())
+
+    def get_answers_sec(self) -> list[float]:
+        return list(self.__answer_sec_by_seq.values())
 
     def __start_sending_syn_pkgs(
             self,
@@ -65,6 +80,7 @@ class PingManager:
         while not self.__is_stoped:
             if packages_number is not None:
                 if i == packages_number:
+                    self.stop()
                     break
 
             package = IP(dst=ip) / TCP(sport=random.randint(0, 65536),
@@ -92,7 +108,7 @@ class PingManager:
             if "TCP" in parsed_data and parsed_data["TCP"].flags == 18:
                 seq = parsed_data["TCP"].ack - 1
                 answer_time = time.time() - self.__sending_time_by_seq[seq]
-                self.__answer_time_by_seq[seq] = answer_time
+                self.__answer_sec_by_seq[seq] = answer_time
 
                 print(f"{parsed_data['IP'].src}:{parsed_data['TCP'].sport} "
                       f"-> syn/ack time={answer_time * 1000} ms")
