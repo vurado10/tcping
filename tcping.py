@@ -1,10 +1,8 @@
 import argparse
 import itertools
-import os
+import smtplib
 import time
 from typing import Iterable
-
-from monitoring_manager import MonitoringManager
 from ping_manager import PingManager
 
 
@@ -116,7 +114,7 @@ def parse_targets(target_list: list[str]) -> list[list[str, int]]:
         # noinspection PyBroadException
         try:
             pre_result.append(parse_target(target))
-        except Exception as e:
+        except Exception:
             pass
 
     return list(itertools.chain(*pre_result))
@@ -128,19 +126,24 @@ if __name__ == "__main__":
     ip_port_pairs = parse_targets(list(itertools.chain(*arguments.targets)))
     print(ip_port_pairs)
 
-    monitoring = MonitoringManager(
-        arguments.sender_email,
-        arguments.sender_password,
-        arguments.recv_email,
-        arguments.email_interval
-    )
+    server = None
+    if not (arguments.sender_email is None
+            or arguments.recv_email is None):
+        server = smtplib.SMTP_SSL("smtp.gmail.com", 465)
+        server.ehlo_or_helo_if_needed()
+        if arguments.sender_password is not None:
+            server.login(arguments.sender_email, arguments.sender_password)
 
-    ping_manager = PingManager(monitoring, ip_port_pairs)
+    ping_manager = PingManager(ip_port_pairs,
+                               server,
+                               sender_email=arguments.sender_email,
+                               recv_email=arguments.recv_email,
+                               email_interval_sec=arguments.email_interval)
     ping_manager.start(arguments.interval, arguments.packages_number)
 
     try:
         if arguments.timeout is None:
-            while True:
+            while not ping_manager.is_stoped:
                 input()
         else:
             time.sleep(arguments.timeout)
@@ -150,3 +153,6 @@ if __name__ == "__main__":
         print()
         ping_manager.stop()
         ping_manager.stop_threadings()
+
+    if server is not None:
+        server.close()

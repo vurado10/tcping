@@ -2,31 +2,37 @@ import asyncio
 import random
 import socket
 import time
+from smtplib import SMTP
 from threading import Thread
 from typing import Optional
-
-from monitoring_manager import MonitoringManager
 from scapy.layers.inet import IP, TCP
 from statistics import Statistics
 
 
 class PingManager:
     def __init__(self,
-                 monitoring: MonitoringManager,
-                 destinations: list[list[str, int]]):
+                 destinations: list[list[str, int]],
+                 smtp: Optional[SMTP] = None,
+                 email_interval_sec: float = 15.,
+                 sender_email: Optional[str] = None,
+                 recv_email: Optional[str] = None):
+        self.__sender_email = sender_email
+        self.__recv_email = recv_email
+        self.__email_interval_sec = email_interval_sec
+        self.__email_thread = None
         self.__destinations = list(destinations)
         self.__sending_thread: Optional[Thread] = None
         self.__receiving_thread: Optional[Thread] = None
         self.__sending_time_by_seq: dict[int, float] = {}
         self.__answer_sec_by_seq: dict[int, float] = {}
         self.__is_sending_stoped = True
-        self.__monitoring = monitoring
+        self.__smtp = smtp
         self.__statistics: dict[tuple[str, int], Statistics] = {}
         self.__is_receiving_running = False
 
     @property
-    def is_sending_stoped(self) -> bool:
-        return self.__is_sending_stoped
+    def is_stoped(self) -> bool:
+        return self.__is_sending_stoped and not self.__is_receiving_running
 
     def start(self,
               interval: float,
@@ -43,11 +49,21 @@ class PingManager:
         self.__receiving_thread = Thread(
             target=self.__start_receiving_ack_pkgs)
 
+        if not (self.__smtp is None
+                or self.__recv_email is None
+                or self.__sender_email is None):
+            self.__email_thread = Thread(
+                target=self.__start_sending_email_reports,
+                args=(self.__email_interval_sec,)
+            )
+
 
         self.__is_sending_stoped = False
         self.__is_receiving_running = True
         self.__sending_thread.start()
         self.__receiving_thread.start()
+        if self.__email_thread is not None:
+            self.__email_thread.start()
 
     def stop(self):
         if self.__is_sending_stoped:
@@ -57,16 +73,31 @@ class PingManager:
         self.__is_receiving_running = False
 
         print(self.__make_full_statistics_report())
+        self.__send_email_report("PING IS OVER\n")
+
 
     def stop_threadings(self):
-        self.__sending_thread.join(timeout=10.)
-        self.__receiving_thread.join(timeout=10.)
+        self.__sending_thread.join(timeout=2.)
+        self.__receiving_thread.join(timeout=2.)
+        if self.__email_thread is not None:
+            self.__email_thread.join(timeout=2.)
 
     def get_sent_packages_count(self) -> int:
         return len(self.__sending_time_by_seq.keys())
 
     def get_answers_sec(self) -> list[float]:
         return list(self.__answer_sec_by_seq.values())
+
+    def __start_sending_email_reports(self, iterval_sec: float):
+        if self.__smtp is None:
+            return
+
+        while self.__is_receiving_running:
+            time.sleep(iterval_sec)
+            if not self.__is_receiving_running:
+                break
+            print(f"EMAIL: sending report on {self.__recv_email}")
+            self.__send_email_report()
 
     def __start_sending_syn_pkgs(
             self,
@@ -170,24 +201,11 @@ class PingManager:
 
         return "\n".join(parts)
 
-    def __make_statistics_report(self, ip: str, port: int) -> str:
-        answers_time = self.get_answers_sec()
-        sent_packages_count = self.get_sent_packages_count()
-        received_packages_count = len(answers_time)
-        losses_percentage = (1 - received_packages_count
-                             / sent_packages_count) * 100
-
-        parts = [
-            "==========",
-            f"Sent packages count: {sent_packages_count}",
-            f"Received packages count: {received_packages_count}",
-            f"Lost packages: {losses_percentage}%"
-        ]
-
-        if answers_time:
-            parts.append(f"Min answ time: {min(answers_time) * 1000} ms")
-            parts.append(f"Max answ time: {max(answers_time) * 1000} ms")
-            parts.append(f"Avg answ time: "
-                         f"{sum(answers_time) / len(answers_time) * 1000} ms")
-
-        return "\n".join(parts)
+    def __send_email_report(self, pre_msg=""):
+        if not (self.__smtp is None
+                or self.__recv_email is None
+                or self.__sender_email is None):
+            self.__smtp.sendmail(self.__sender_email,
+                                 self.__recv_email,
+                                 pre_msg
+                                 + self.__make_full_statistics_report())

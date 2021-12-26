@@ -1,7 +1,13 @@
+import threading
+
+
 class Statistics:
     def __init__(self):
         self.__sending_time_by_pk_id: dict[int, float] = {}
         self.__answer_sec_by_pk_id: dict[int, float] = {}
+        self.__event = threading.Event()
+        self.__event.set()
+
 
     def __str__(self) -> str:
         answers_time = self.get_answers_sec()
@@ -25,10 +31,24 @@ class Statistics:
         return "\n".join(parts)
 
     def get_sent_packages_count(self) -> int:
-        return len(self.__sending_time_by_pk_id.keys())
+        self.__event.wait()
+        self.__event.clear()
+
+        result = len(self.__sending_time_by_pk_id.keys())
+
+        self.__event.set()
+
+        return result
 
     def get_answers_sec(self) -> list[float]:
-        return list(self.__answer_sec_by_pk_id.values())
+        self.__event.wait()
+        self.__event.clear()
+
+        result = list(self.__answer_sec_by_pk_id.values())
+
+        self.__event.set()
+
+        return result
 
     def get_answer_time_by_pk_id(self, pk_id: int):
         return self.__answer_sec_by_pk_id[pk_id]
