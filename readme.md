@@ -11,3 +11,7 @@ optional arguments:
   -t TIMEOUT          in seconds (float), default=+inf
   -i INTERVAL         in seconds (float)
 ```
+
+Email sending
+---
+1. Using smtp.gmail.com => sending reports only via gmail
