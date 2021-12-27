@@ -5,7 +5,10 @@ import time
 from smtplib import SMTP
 from threading import Thread
 from typing import Optional
-from scapy.layers.inet import IP, TCP
+
+from package_builders import create_ip_header, create_tcp_syn_segment
+from package_parsers import get_ipv4_protocol_type, is_tcp_syn_ack, \
+    get_ipv4_source, get_tcp_source_port, get_tcp_ack
 from statistics import Statistics
 
 
@@ -57,7 +60,6 @@ class PingManager:
                 args=(self.__email_interval_sec,)
             )
 
-
         self.__is_sending_stoped = False
         self.__is_receiving_running = True
         self.__sending_thread.start()
@@ -74,7 +76,6 @@ class PingManager:
 
         print(self.__make_full_statistics_report())
         self.__send_email_report("PING IS OVER\n")
-
 
     def stop_threadings(self):
         self.__sending_thread.join(timeout=2.)
@@ -124,7 +125,6 @@ class PingManager:
 
         await asyncio.gather(*tasks)
 
-
     async def __start_sending_syn_pkgs_async(
             self,
             ip: str,
@@ -143,10 +143,13 @@ class PingManager:
                 if i == packages_number:
                     break
 
-            package = IP(dst=ip) / TCP(sport=random.randint(0, 65536),
-                                       dport=port,
-                                       seq=i,
-                                       flags="S")
+            sport = random.randint(0, 65536)
+
+            ip_header = create_ip_header(ip)
+            tcp_segment = create_tcp_syn_segment(
+                ip_header, sport, port, i)
+
+            package = ip_header + tcp_segment
 
             #               just an internet ip (true ip in header of package)
             s.sendto(bytes(package), ("1.1.1.1", 0))
@@ -176,20 +179,20 @@ class PingManager:
             except socket.timeout:
                 continue
             recv_time = time.time()
-            parsed_data = IP(data)
 
-            if "TCP" in parsed_data and parsed_data["TCP"].flags == 18:
-                ip = parsed_data['IP'].src
-                port = parsed_data['TCP'].sport
+            if (get_ipv4_protocol_type(data) == 6
+                    and is_tcp_syn_ack(data)):
+                ip = get_ipv4_source(data)
+                port = get_tcp_source_port(data)
                 stat = self.__statistics.get((ip, port), None)
                 if stat is None:
                     continue
 
-                seq = parsed_data["TCP"].ack - 1
+                seq = get_tcp_ack(data) - 1
                 stat.register_recv_time(seq, recv_time)
                 answer_time = stat.get_answer_time_by_pk_id(seq)
 
-                print(f"{parsed_data['IP'].src}:{parsed_data['TCP'].sport} "
+                print(f"{ip}:{port} "
                       f"-> syn/ack time={answer_time * 1000} ms")
 
     def __make_full_statistics_report(self) -> str:
