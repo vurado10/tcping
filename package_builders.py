@@ -1,3 +1,4 @@
+import environment
 from scapy.arch import get_if_addr
 from scapy.config import conf
 
@@ -68,7 +69,9 @@ def create_ip_header(destination_ip: str) -> bytes:
         "ttl": b'@',
         "protocol_type": b'\x06',
         "check_sum": b'\x00\x00',
-        "src_ip_bytes": bytes(map(int, get_if_addr(conf.iface).split("."))),
+        "src_ip_bytes": bytes(map(int,
+                                  get_if_addr(environment.NET_INTERFACE_NAME)
+                                  .split("."))),
         "dst_ip_bytes": bytes(map(int, destination_ip.split(".")))
     }
 
