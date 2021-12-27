@@ -26,4 +26,4 @@ BEFORE START
 
 Email sending
 ---
-1. Using smtp.gmail.com => sending reports only via gmail
+1. Using smtp.gmail.com => sending reports only via gmail => you need to get app-password in google account settings
