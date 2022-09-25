@@ -20,9 +20,11 @@ OS
 ---
 1. Only Linux
 
+
 BEFORE START
 ---
 1. Enter the net intervace into `NET_INTERFACE_NAME` in `environment.py`
+
 
 Email sending
 ---
